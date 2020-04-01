@@ -71,31 +71,20 @@ def main():
     sys_writer_fn = get_sys_writer_function(args)
     print_stats(0, server, clients, client_num_samples, args, stat_writer_fn, args.use_val_set)
 
-    # Simulate training
-    for i in range(num_rounds):
-        print('--- Round %d of %d: Training %d Clients ---' % (i + 1, num_rounds, clients_per_round))
+    # Simulate training over all clients, but one client per round, and print avg client's accuracy
 
-        # Select clients to train this round
-        server.select_clients(i, online(clients), num_clients=clients_per_round)
-        c_ids, c_groups, c_num_samples = server.get_clients_info(server.selected_clients)
+    #print('--- Round %d of %d: Training %d Clients ---' % (i + 1, num_rounds, changed_clients_per_round))
 
-        # Simulate server model training on selected clients' data
-        sys_metrics = server.train_model(num_epochs=args.num_epochs, batch_size=args.batch_size, minibatch=args.minibatch)
-        sys_writer_fn(i + 1, c_ids, sys_metrics, c_groups, c_num_samples)
-        
-        # Update server model
-        server.update_model()
+    # Select clients to train this round
+    server.select_clients(41, online(clients), num_clients=len(clients))
+    c_ids, c_groups, c_num_samples = server.get_clients_info(server.selected_clients)
 
-        # Test model
-        if (i + 1) % eval_every == 0 or (i + 1) == num_rounds:
-            print_stats(i + 1, server, clients, client_num_samples, args, stat_writer_fn, args.use_val_set)
+    sys_metrics, up_models = server.train_model(num_epochs=args.num_epochs, batch_size=args.batch_size, minibatch=args.minibatch,
+                                               clients=None, write_file=False)
+    sys_writer_fn(1, c_ids, sys_metrics, c_groups, c_num_samples)
+
+    print_stats(1, server, clients, client_num_samples, args, stat_writer_fn, args.use_val_set, up_models)
     
-    # Save server model
-    ckpt_path = os.path.join('checkpoints', args.dataset)
-    if not os.path.exists(ckpt_path):
-        os.makedirs(ckpt_path)
-    save_path = server.save_model(os.path.join(ckpt_path, '{}.ckpt'.format(args.model)))
-    print('Model saved in path: %s' % save_path)
 
     # Close models
     server.close_model()
@@ -147,17 +136,22 @@ def get_sys_writer_function(args):
     return writer_fn
 
 
+# modified version for a pure local(nonfd) version
 def print_stats(
-    num_round, server, clients, num_samples, args, writer, use_val_set):
+    num_round, server, clients, num_samples, args, writer, use_val_set, models):
     
-    train_stat_metrics = server.test_model(clients, set_to_use='train')
-    print_metrics(train_stat_metrics, num_samples, prefix='train_')
-    writer(num_round, train_stat_metrics, 'train')
+    #train_stat_metrics = server.test_model(clients, set_to_use='train')
+    #print_metrics(train_stat_metrics, num_samples, prefix='train_')
+    #writer(num_round, train_stat_metrics, 'train')
 
     eval_set = 'test' if not use_val_set else 'val'
-    test_stat_metrics = server.test_model(clients, set_to_use=eval_set)
-    print_metrics(test_stat_metrics, num_samples, prefix='{}_'.format(eval_set))
-    writer(num_round, test_stat_metrics, eval_set)
+    metrics = {}
+    for i,client in enumerate(clients):
+            client.model.set_params( models[i][1]  )
+            c_metrics = client.test( 'test' )
+            metrics[client.id] = c_metrics    
+    print_metrics(metrics, num_samples, prefix='{}_'.format(eval_set))
+    writer(num_round, metrics, eval_set)
 
 
 def print_metrics(metrics, weights, prefix=''):
@@ -174,12 +168,9 @@ def print_metrics(metrics, weights, prefix=''):
     to_ret = None
     for metric in metric_names:
         ordered_metric = [metrics[c][metric] for c in sorted(metrics)]
-        print('%s: %g, 10th percentile: %g, 50th percentile: %g, 90th percentile %g' \
+        print('%s: %g' \
               % (prefix + metric,
-                 np.average(ordered_metric, weights=ordered_weights),
-                 np.percentile(ordered_metric, 10),
-                 np.percentile(ordered_metric, 50),
-                 np.percentile(ordered_metric, 90)))
+                 np.average(ordered_metric, weights=None)))
 
 
 if __name__ == '__main__':
