@@ -8,5 +8,5 @@ Run  run_trainer.sh <dataset> <optimizer> <model> <mu>
 
 # Options
 * Optimizer is within fedavg, fedprox and feddane
-* model for femnist choose mclr, for celeba choose cnn
+* for femnist choose mclr model(as in the origin paper), for celeba choose cnn
 * mu in my settings have been used 0 all the time
