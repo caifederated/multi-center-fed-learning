@@ -1,7 +1,7 @@
-# mlhead: A multi-headed Federated algorithm from LEAF
+# multi-center-fed-learning: A multi-center federated learning approach
 
 ## Resources
-
+Please technical details for this paper:
 
 
 ## Datasets
