@@ -1,11 +1,12 @@
 # multi-center-fed-learning: A multi-center federated learning approach
 
 ## Resources
-Please technical details for this paper:
+Please technical details for this paper: [Multi-center Federated Learning](https://arxiv.org/abs/2005.01026)
 
 
 ## Datasets
-
+Femnist
+Celeba
 
 ## Notes
 
