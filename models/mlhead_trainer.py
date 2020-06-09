@@ -19,7 +19,7 @@ SYS_METRICS_PATH = 'metrics/sys_metrics.csv'
 # below import fedmc necessary lib
 from mh_constants import VARIABLE_PARAMS
 from mlhead_clus_server import Mlhead_Clus_Server
-from mlhead_utilfuncs import get_points_dataset, count_num_point_from, save_metric_csv
+from mlhead_utilfuncs import get_tensor_from_localmodels,count_num_point_from, save_metric_csv
 
 from baseline_constants import MAIN_PARAMS, MODEL_PARAMS
 from mlhead_client import Client
@@ -136,7 +136,7 @@ class MlheadTrainer():
         
         self.head_server_stack = [Server(client_model) for _ in range(max(args.num_clusters, 1))]
         print("--- Do training and initilized clusting server---")
-        self.mlhead_cluster = Mlhead_Clus_Server(client_model, args.dataset, args.model, args.num_clusters)
+        self.mlhead_cluster = Mlhead_Clus_Server(client_model, args.dataset, args.model, args.num_clusters, len(self.clients))
         self.mlhead_cluster.select_clients(15896001, self.clients)
         #print("Client models are saved at %s"  % self.mlhead_cluster.path )        
 
@@ -186,18 +186,17 @@ class MlheadTrainer():
                 # cluster is in this form: a list of (num_clients, clients), client is a array of client model.             
                     c_wts = self.mlhead_cluster.get_init_point_data()
                     start_time = time.time()
-                    _, score = self.mlhead_cluster.run_clustering(prev_score, c_wts)
+                    _, learned_cluster = self.mlhead_cluster.run_clustering(prev_score, c_wts)
                     end_time = time.time() - start_time
                     self.kmeans_cost[k] = end_time
-                    prev_score = score
-                    learned_cluster = self.mlhead_cluster.eval_clustermembership(args.num_clusters)
+                    prev_score = len(c_wts)
 
 
             #print('--- Round %d of %d: Training %d Clients ---' % (k + 1, num_rounds, clients_per_round))
             print('--- Round %d of %d: Training assigned to %d Cluster ' % (k + 1, self.num_rounds, len(learned_cluster)), 
                 "<", count_num_point_from(learned_cluster), "> ---")
 
-            joined_clients = []
+            joined_clients = dict()
             for c_idx, group in enumerate(learned_cluster):
                 server = self.head_server_stack[c_idx]
                 if group[0] <= 1:
@@ -210,12 +209,15 @@ class MlheadTrainer():
                     active_clients = np.random.choice(group[1], num, replace=False)
                 else:
                     active_clients = group[1]
-                joined_clients.extend(active_clients)
+                
 
                 c_ids, c_groups, c_num_samples = server.get_clients_info(active_clients)
-                sys_metrics, _ = server.train_model(num_epochs=args.num_epochs, batch_size=args.batch_size, minibatch=args.minibatch, clients = active_clients, write_file=write_file)
+                sys_metrics, updates = server.train_model(num_epochs=args.num_epochs, batch_size=args.batch_size, minibatch=args.minibatch, clients = active_clients)
                 sys_fn = get_sys_writer_function(args)
                 sys_fn(k + 1, c_ids, sys_metrics, c_groups, c_num_samples)
+                
+                for c, up in zip(active_clients, updates):
+                    joined_clients[c.id] = up[1]
                 # Thinking how to do a distance as weight averging
                 if args.weight_mode == "no_size":
                     server.update_model_wmode()
@@ -232,15 +234,13 @@ class MlheadTrainer():
 
             # Update the center point when k = local training * a mulitplier
             if not args.num_clusters == -1 and not k == (self.num_rounds -1) and (k + 1) % args.update_head_every == 0:
-                c_wts = get_points_dataset(joined_clients,
-                                                  self.mlhead_cluster.selected, 
+                c_wts = get_tensor_from_localmodels(joined_clients,
                                                   c_wts,
-                                                  self.mlhead_cluster.variable, 
-                                                  self.mlhead_cluster.x_dimensions, self.mlhead_cluster.path)
-                _, score = self.mlhead_cluster.run_clustering(prev_score, c_wts)# cwts is N (clients) x x_dimensions
-                learned_cluster = self.mlhead_cluster.eval_clustermembership(args.num_clusters)
+                                                  self.mlhead_cluster.variable, self.clients[0].model)
+                _, learned_cluster = self.mlhead_cluster.run_clustering(prev_score, c_wts)# cwts is N (clients) x x_dimensions
+                joined_clients.clear()
                 print("----- Multi-headed clustering performed -----")
-                prev_score = score
+                prev_score = len(c_wts)
                 
 
     def finish(self, args):

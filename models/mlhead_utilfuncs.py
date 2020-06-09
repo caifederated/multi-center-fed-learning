@@ -26,13 +26,17 @@ def restore_ckpt(variable, id, ckpt_path):
     the speed for kmeans per iteration
 
 """
-def get_points_dataset(joined_clients, clients, points, variable, dimensions, ckpt_path):
-    # Points is a dict keeps client_id and client_weights pair
-    ids = [client.id for client in joined_clients]
-    for x, client_id in enumerate(points):
-        if client_id in ids:
-            points[client_id] = restore_ckpt(variable, client_id, ckpt_path)
-
+def get_tensor_from_localmodels(joined_clients, points, variable, client_model):
+    def get_variable_by_name(values, dic):
+        for var, key in zip(values, dic):
+            if key.op.name == variable:
+                return np.array(var).flatten()
+    
+    with client_model.graph.as_default():
+        a_dict = tf.trainable_variables()
+    for key in joined_clients:
+        points[key] = get_variable_by_name(joined_clients[key], a_dict)
+        
     return points
 
 def count_num_point_from(learned_cluster):

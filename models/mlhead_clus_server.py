@@ -16,7 +16,7 @@ from kmean_model import KmeanModel
 
 class Mlhead_Clus_Server:
     
-    def __init__(self, client_model, dataset, model, num_clusters):
+    def __init__(self, client_model, dataset, model, num_clusters, num_clients):
         self.modeldir = "/scratch/tmpmodel"
         if not os.path.exists(self.modeldir):
             os.makedirs(self.modeldir)
@@ -33,6 +33,8 @@ class Mlhead_Clus_Server:
             self._num_clusters = num_clusters
             self._learned = None
             self._shuffledkeys = None
+            self._clusterModel = KmeanModel(num_clients, self._x_dimensions, \
+                                                self._num_clusters, 99999)            
         """
         cluster_membership is a list of cluster dictionary,
         each contains {'member':list of clients, 
@@ -151,13 +153,12 @@ class Mlhead_Clus_Server:
         return c_dict
 
     def run_clustering(self, prev_score, data):
-        seed = np.random.randint(5667799881, size=1)[0]
-        features = np.concatenate([np.array(data[x]) for x in self._shuffledkeys])
-        features = np.reshape(features, (len(self._shuffledkeys), self._x_dimensions))
-        model = KmeanModel(features.shape[0], self._x_dimensions, self._num_clusters, seed)
-        self._learned = model.assign_clusters(features)
         random.shuffle(self._shuffledkeys)
-        return None, len(self._learned)
+        features = list()
+        for x in self._shuffledkeys:
+            features.append(data[x])
+        labels = self._clusterModel.assign_clusters(np.array(features))
+        return None, self.eval_clustermembership(labels)
         
     def train_kmeans(self, prev_score, data):
         """We are using pre-made tensorflow estimators to 
@@ -198,7 +199,7 @@ class Mlhead_Clus_Server:
         return None, score
 
     
-    def eval_clustermembership(self, num_clusters):
+    def eval_clustermembership(self, labels):
         """Transfrom the input data,
         get the min distance of each point to cluster centers, 
         then return the index of cluster center whose distance for a sample
@@ -206,7 +207,6 @@ class Mlhead_Clus_Server:
         
         return a list of (num_clients, clients)
         """
-        # print(str(self._learned))
 
         for _, cluster in enumerate(self._cluster_membership):
             cluster["member"] = list()
@@ -219,8 +219,15 @@ class Mlhead_Clus_Server:
                     sort_clients.append(client)
                     break
                     
-        for x in range(len(self._learned)):
-            grp_id = self._learned[x]            
+        for x in range(len(labels)):
+            grp_id = labels[x]            
             self._cluster_membership[grp_id]["member"].append(sort_clients[x])
-        return [ (len(cluster["member"]), cluster["member"]) for cl_id, cluster in enumerate(self._cluster_membership)]
+        clus =  [ (len(cluster["member"]), cluster["member"]) for cl_id, cluster in enumerate(self._cluster_membership)]
+        for c in clus:
+            # I wanna to set first flag to true if any 
+            # cluster is only = 0
+            if c[0] == 0:
+                self._clusterModel.first = True
+                break;
+        return clus
             
