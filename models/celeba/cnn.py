@@ -20,7 +20,7 @@ class ClientModel(Model):
         input_ph = tf.placeholder(
             tf.float32, shape=(None, IMAGE_SIZE, IMAGE_SIZE, 3))
         out = input_ph
-        for _ in range(4):
+        for _ in range(2):
             out = tf.layers.conv2d(out, 32, 3, padding='same')
             out = tf.layers.batch_normalization(out, training=True)
             out = tf.layers.max_pooling2d(out, 2, 2, padding='same')
